@@ -3,12 +3,18 @@ package vn.edu.ueh.thanhdnh.firebase_example;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Base64;
 import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -17,10 +23,29 @@ import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
+
+    // ============================================================
+    // FORM
+    // ============================================================
+
+    private EditText edtArticleId;
+    private EditText edtArticleTitle;
+    private EditText edtArticleContent;
+
+    private ImageView imgPreview;
+
+    private Button btnChooseImage;
+    private Button btnSaveArticle;
+
+    // ============================================================
+    // LIST
+    // ============================================================
 
     private RecyclerView recyclerArticles;
     private ProgressBar progressMain;
@@ -28,39 +53,90 @@ public class MainActivity extends AppCompatActivity {
     private ArrayList<Article> articleList;
     private ArticleViewAdapter adapter;
 
+    // ============================================================
+    // FIREBASE
+    // ============================================================
+
     private FirebaseFirestore db;
+
+    // ============================================================
+    // IMAGE
+    // ============================================================
+
+    private String selectedImageBase64 = null;
+
+    private ActivityResultLauncher<String> imagePickerLauncher;
+
+    // ============================================================
+    // ON CREATE
+    // ============================================================
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+
         super.onCreate(savedInstanceState);
 
-        setContentView(R.layout.activity_main);
+        setContentView(
+                R.layout.activity_main
+        );
 
-        // ==========================================
-        // 1. ÁNH XẠ VIEW
-        // ==========================================
+        // ========================================================
+        // ÁNH XẠ VIEW
+        // ========================================================
+
+        edtArticleId =
+                findViewById(
+                        R.id.edtArticleId
+                );
+
+        edtArticleTitle =
+                findViewById(
+                        R.id.edtArticleTitle
+                );
+
+        edtArticleContent =
+                findViewById(
+                        R.id.edtArticleContent
+                );
+
+        imgPreview =
+                findViewById(
+                        R.id.imgPreview
+                );
+
+        btnChooseImage =
+                findViewById(
+                        R.id.btnChooseImage
+                );
+
+        btnSaveArticle =
+                findViewById(
+                        R.id.btnSaveArticle
+                );
 
         recyclerArticles =
-                findViewById(R.id.recyclerArticles);
+                findViewById(
+                        R.id.recyclerArticles
+                );
 
         progressMain =
-                findViewById(R.id.progressMain);
+                findViewById(
+                        R.id.progressMain
+                );
 
-        // ==========================================
-        // 2. KHỞI TẠO FIREBASE FIRESTORE
-        // ==========================================
+        // ========================================================
+        // FIREBASE
+        // ========================================================
 
-        db = FirebaseFirestore.getInstance();
+        db =
+                FirebaseFirestore.getInstance();
 
-        // ==========================================
-        // 3. TẠO DANH SÁCH ARTICLE
-        // ==========================================
+        // ========================================================
+        // RECYCLER VIEW
+        // ========================================================
 
-        articleList = new ArrayList<>();
-
-        // ==========================================
-        // 4. TẠO ADAPTER
-        // ==========================================
+        articleList =
+                new ArrayList<>();
 
         adapter =
                 new ArticleViewAdapter(
@@ -72,44 +148,439 @@ public class MainActivity extends AppCompatActivity {
                 new LinearLayoutManager(this)
         );
 
-        recyclerArticles.setAdapter(adapter);
+        recyclerArticles.setAdapter(
+                adapter
+        );
 
-        // ==========================================
-        // 5. ĐỌC DANH SÁCH ARTICLE TỪ FIRESTORE
-        // ==========================================
+        /*
+         * Vì RecyclerView đang nằm bên trong NestedScrollView
+         * nên tắt scroll riêng của RecyclerView.
+         *
+         * Toàn bộ activity_main sẽ cuộn cùng nhau.
+         */
+        recyclerArticles.setNestedScrollingEnabled(
+                false
+        );
+
+        // ========================================================
+        // IMAGE PICKER
+        // ========================================================
+
+        setupImagePicker();
+
+        // ========================================================
+        // BUTTON CHỌN ẢNH
+        // ========================================================
+
+        btnChooseImage.setOnClickListener(
+                view -> {
+
+                    imagePickerLauncher.launch(
+                            "image/*"
+                    );
+                }
+        );
+
+        // ========================================================
+        // BUTTON SAVE
+        // ========================================================
+
+        btnSaveArticle.setOnClickListener(
+                view -> saveArticle()
+        );
+
+        // ========================================================
+        // LOAD FIRESTORE REALTIME
+        // ========================================================
 
         loadArticles();
-
-        // ==========================================
-        // 6. KIỂM TRA VÀ UPLOAD ẢNH CHO A001
-        // ==========================================
-        //
-        // Hàm này chỉ upload nếu A001 CHƯA có
-        // field image_base64.
-        //
-        // Vì vậy không bị upload lại mỗi lần mở app.
-        // ==========================================
-
-        uploadImageForA001IfNeeded();
     }
 
     // ============================================================
-    // ĐỌC DANH SÁCH ARTICLES
+    // IMAGE PICKER
+    // ============================================================
+
+    private void setupImagePicker() {
+
+        imagePickerLauncher =
+                registerForActivityResult(
+                        new ActivityResultContracts.GetContent(),
+                        uri -> {
+
+                            if (uri == null) {
+
+                                return;
+                            }
+
+                            convertImageToBase64(
+                                    uri
+                            );
+                        }
+                );
+    }
+
+    // ============================================================
+    // CHUYỂN ẢNH THÀNH BASE64
+    // ============================================================
+
+    private void convertImageToBase64(
+            Uri uri
+    ) {
+
+        try {
+
+            // ====================================================
+            // ĐỌC ẢNH
+            // ====================================================
+
+            InputStream inputStream =
+                    getContentResolver()
+                            .openInputStream(uri);
+
+            Bitmap bitmap =
+                    BitmapFactory.decodeStream(
+                            inputStream
+                    );
+
+            if (inputStream != null) {
+
+                inputStream.close();
+            }
+
+            if (bitmap == null) {
+
+                Toast.makeText(
+                        this,
+                        "Không đọc được ảnh",
+                        Toast.LENGTH_SHORT
+                ).show();
+
+                return;
+            }
+
+            // ====================================================
+            // HIỆN PREVIEW
+            // ====================================================
+
+            imgPreview.setVisibility(
+                    View.VISIBLE
+            );
+
+            imgPreview.setImageBitmap(
+                    bitmap
+            );
+
+            // ====================================================
+            // RESIZE
+            // ====================================================
+
+            Bitmap resizedBitmap =
+                    resizeBitmap(
+                            bitmap,
+                            600
+                    );
+
+            // ====================================================
+            // NÉN JPEG
+            // ====================================================
+
+            ByteArrayOutputStream outputStream =
+                    new ByteArrayOutputStream();
+
+            resizedBitmap.compress(
+                    Bitmap.CompressFormat.JPEG,
+                    55,
+                    outputStream
+            );
+
+            byte[] imageBytes =
+                    outputStream.toByteArray();
+
+            // ====================================================
+            // BASE64
+            // ====================================================
+
+            selectedImageBase64 =
+                    Base64.encodeToString(
+                            imageBytes,
+                            Base64.NO_WRAP
+                    );
+
+            Toast.makeText(
+                    this,
+                    "Đã chọn ảnh",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+        } catch (Exception e) {
+
+            Toast.makeText(
+                    this,
+                    "Lỗi đọc ảnh: "
+                            + e.getMessage(),
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
+    // ============================================================
+    // SAVE ARTICLE
+    // ============================================================
+
+    private void saveArticle() {
+
+        // ========================================================
+        // LẤY DỮ LIỆU FORM
+        // ========================================================
+
+        String id =
+                edtArticleId
+                        .getText()
+                        .toString()
+                        .trim();
+
+        String title =
+                edtArticleTitle
+                        .getText()
+                        .toString()
+                        .trim();
+
+        String content =
+                edtArticleContent
+                        .getText()
+                        .toString()
+                        .trim();
+
+        // ========================================================
+        // VALIDATE ID
+        // ========================================================
+
+        if (id.isEmpty()) {
+
+            edtArticleId.setError(
+                    "Vui lòng nhập ID bài viết"
+            );
+
+            edtArticleId.requestFocus();
+
+            return;
+        }
+
+        // ========================================================
+        // VALIDATE TITLE
+        // ========================================================
+
+        if (title.isEmpty()) {
+
+            edtArticleTitle.setError(
+                    "Vui lòng nhập tiêu đề"
+            );
+
+            edtArticleTitle.requestFocus();
+
+            return;
+        }
+
+        // ========================================================
+        // VALIDATE CONTENT
+        // ========================================================
+
+        if (content.isEmpty()) {
+
+            edtArticleContent.setError(
+                    "Vui lòng nhập nội dung"
+            );
+
+            edtArticleContent.requestFocus();
+
+            return;
+        }
+
+        // ========================================================
+        // VALIDATE IMAGE
+        // ========================================================
+
+        if (
+                selectedImageBase64 == null
+                        || selectedImageBase64.isEmpty()
+        ) {
+
+            Toast.makeText(
+                    this,
+                    "Vui lòng chọn ảnh cho bài viết",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        // ========================================================
+        // LOADING
+        // ========================================================
+
+        progressMain.setVisibility(
+                View.VISIBLE
+        );
+
+        btnSaveArticle.setEnabled(
+                false
+        );
+
+        btnChooseImage.setEnabled(
+                false
+        );
+
+        // ========================================================
+        // TẠO DATA FIRESTORE
+        // ========================================================
+
+        Map<String, Object> articleData =
+                new HashMap<>();
+
+        articleData.put(
+                "id",
+                id
+        );
+
+        articleData.put(
+                "title",
+                title
+        );
+
+        articleData.put(
+                "content",
+                content
+        );
+
+        articleData.put(
+                "image_base64",
+                selectedImageBase64
+        );
+
+        // ========================================================
+        // SAVE FIRESTORE
+        // ========================================================
+
+        db.collection(
+                        "articles"
+                )
+                .document(
+                        id
+                )
+                .set(
+                        articleData
+                )
+                .addOnSuccessListener(
+                        unused -> {
+
+                            progressMain.setVisibility(
+                                    View.GONE
+                            );
+
+                            btnSaveArticle.setEnabled(
+                                    true
+                            );
+
+                            btnChooseImage.setEnabled(
+                                    true
+                            );
+
+                            Toast.makeText(
+                                    MainActivity.this,
+                                    "Đã lưu bài viết "
+                                            + id
+                                            + " lên Firebase",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            // Xóa form sau khi lưu
+                            clearForm();
+                        }
+                )
+                .addOnFailureListener(
+                        e -> {
+
+                            progressMain.setVisibility(
+                                    View.GONE
+                            );
+
+                            btnSaveArticle.setEnabled(
+                                    true
+                            );
+
+                            btnChooseImage.setEnabled(
+                                    true
+                            );
+
+                            Toast.makeText(
+                                    MainActivity.this,
+                                    "Lỗi lưu Firebase: "
+                                            + e.getMessage(),
+                                    Toast.LENGTH_LONG
+                            ).show();
+                        }
+                );
+    }
+
+    // ============================================================
+    // CLEAR FORM
+    // ============================================================
+
+    private void clearForm() {
+
+        edtArticleId.setText(
+                ""
+        );
+
+        edtArticleTitle.setText(
+                ""
+        );
+
+        edtArticleContent.setText(
+                ""
+        );
+
+        // Xóa preview
+        imgPreview.setImageDrawable(
+                null
+        );
+
+        // Ẩn vùng preview
+        imgPreview.setVisibility(
+                View.GONE
+        );
+
+        // Xóa ảnh Base64 cũ
+        selectedImageBase64 =
+                null;
+
+        // Đưa con trỏ về ID
+        edtArticleId.requestFocus();
+    }
+
+    // ============================================================
+    // LOAD ARTICLES REALTIME
     // ============================================================
 
     private void loadArticles() {
 
-        progressMain.setVisibility(View.VISIBLE);
+        progressMain.setVisibility(
+                View.VISIBLE
+        );
 
-        db.collection("articles")
+        db.collection(
+                        "articles"
+                )
                 .addSnapshotListener(
                         (querySnapshot, error) -> {
 
-                            progressMain.setVisibility(View.GONE);
+                            progressMain.setVisibility(
+                                    View.GONE
+                            );
 
-                            // ======================================
-                            // KIỂM TRA LỖI FIREBASE
-                            // ======================================
+                            // ====================================
+                            // FIREBASE ERROR
+                            // ====================================
 
                             if (error != null) {
 
@@ -125,91 +596,76 @@ public class MainActivity extends AppCompatActivity {
 
                             if (querySnapshot == null) {
 
-                                Toast.makeText(
-                                        MainActivity.this,
-                                        "Không nhận được dữ liệu từ Firebase",
-                                        Toast.LENGTH_SHORT
-                                ).show();
-
                                 return;
                             }
 
-                            // Xóa dữ liệu cũ
+                            // ====================================
+                            // CLEAR DANH SÁCH CŨ
+                            // ====================================
+
                             articleList.clear();
 
-                            // ======================================
-                            // ĐỌC TỪ COLLECTION "articles"
-                            // ======================================
+                            // ====================================
+                            // ĐỌC ARTICLES FIRESTORE
+                            // ====================================
 
                             for (
                                     DocumentSnapshot document :
                                     querySnapshot.getDocuments()
                             ) {
 
-                                // ------------------------------
+                                // =================================
                                 // ID
-                                // ------------------------------
+                                // =================================
 
                                 String id =
-                                        getStringField(
-                                                document,
+                                        document.getString(
                                                 "id"
                                         );
 
+                                /*
+                                 * Nếu field id bị thiếu thì dùng
+                                 * document ID trên Firestore.
+                                 */
                                 if (
                                         id == null
-                                                || id.trim().isEmpty()
+                                                || id.isEmpty()
                                 ) {
 
-                                    id = document.getId();
+                                    id =
+                                            document.getId();
                                 }
 
-                                // ------------------------------
+                                // =================================
                                 // TITLE
-                                // ------------------------------
+                                // =================================
 
                                 String title =
-                                        getStringField(
-                                                document,
+                                        document.getString(
                                                 "title"
                                         );
 
-                                if (
-                                        title == null
-                                                || title.trim().isEmpty()
-                                ) {
-
-                                    title = "Không có tiêu đề";
-                                }
-
-                                // ------------------------------
+                                // =================================
                                 // CONTENT
-                                // ------------------------------
+                                // =================================
 
                                 String content =
-                                        getStringField(
-                                                document,
+                                        document.getString(
                                                 "content"
                                         );
 
-                                if (content == null) {
-
-                                    content = "";
-                                }
-
-                                // ------------------------------
+                                // =================================
                                 // IMAGE BASE64
-                                // ------------------------------
+                                // =================================
 
                                 String imageBase64 =
-                                        getStringField(
-                                                document,
+                                        document.getString(
                                                 "image_base64"
                                         );
 
-                                // ------------------------------
-                                // TẠO OBJECT ARTICLE
-                                // ------------------------------
+                                // =================================
+                                // ARTICLE OBJECT
+                                // =================================
 
                                 Article article =
                                         new Article(
@@ -219,12 +675,14 @@ public class MainActivity extends AppCompatActivity {
                                                 imageBase64
                                         );
 
-                                articleList.add(article);
+                                articleList.add(
+                                        article
+                                );
                             }
 
-                            // ======================================
-                            // CẬP NHẬT RECYCLERVIEW
-                            // ======================================
+                            // ====================================
+                            // REFRESH RECYCLERVIEW
+                            // ====================================
 
                             adapter.notifyDataSetChanged();
                         }
@@ -232,214 +690,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ============================================================
-    // KIỂM TRA A001 ĐÃ CÓ ẢNH HAY CHƯA
-    // ============================================================
-
-    private void uploadImageForA001IfNeeded() {
-
-        db.collection("articles")
-                .document("A001")
-                .get()
-                .addOnSuccessListener(
-                        documentSnapshot -> {
-
-                            // Document A001 chưa tồn tại
-                            if (!documentSnapshot.exists()) {
-
-                                Toast.makeText(
-                                        MainActivity.this,
-                                        "Không tìm thấy Article A001",
-                                        Toast.LENGTH_SHORT
-                                ).show();
-
-                                return;
-                            }
-
-                            // Đọc field image_base64
-                            String currentImage =
-                                    documentSnapshot.getString(
-                                            "image_base64"
-                                    );
-
-                            // Nếu đã có ảnh thì KHÔNG upload lại
-                            if (
-                                    currentImage != null
-                                            && !currentImage.isEmpty()
-                            ) {
-
-                                return;
-                            }
-
-                            // Nếu chưa có ảnh
-                            // thì tiến hành upload
-                            uploadImageForA001();
-                        }
-                )
-                .addOnFailureListener(
-                        e -> {
-
-                            Toast.makeText(
-                                    MainActivity.this,
-                                    "Không kiểm tra được ảnh A001: "
-                                            + e.getMessage(),
-                                    Toast.LENGTH_LONG
-                            ).show();
-                        }
-                );
-    }
-
-    // ============================================================
-    // CHUYỂN ẢNH DRAWABLE -> BASE64 -> FIRESTORE
-    // ============================================================
-
-    private void uploadImageForA001() {
-
-        /*
-         * Tìm ảnh tên:
-         *
-         * article_a001.jpg
-         *
-         * hoặc:
-         *
-         * article_a001.png
-         *
-         * trong res/drawable.
-         *
-         * Dùng getIdentifier để project vẫn build được
-         * kể cả khi bạn chưa thêm ảnh.
-         */
-
-        int imageResId =
-                getResources().getIdentifier(
-                        "article_a001",
-                        "drawable",
-                        getPackageName()
-                );
-
-        // Chưa có ảnh trong drawable
-        if (imageResId == 0) {
-
-            Toast.makeText(
-                    this,
-                    "Chưa tìm thấy ảnh article_a001 trong drawable",
-                    Toast.LENGTH_LONG
-            ).show();
-
-            return;
-        }
-
-        // ==========================================
-        // ĐỌC ẢNH TỪ DRAWABLE
-        // ==========================================
-
-        Bitmap originalBitmap =
-                BitmapFactory.decodeResource(
-                        getResources(),
-                        imageResId
-                );
-
-        if (originalBitmap == null) {
-
-            Toast.makeText(
-                    this,
-                    "Không đọc được ảnh article_a001",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            return;
-        }
-
-        // ==========================================
-        // THU NHỎ ẢNH
-        // ==========================================
-
-        Bitmap resizedBitmap =
-                resizeBitmap(
-                        originalBitmap,
-                        500
-                );
-
-        // ==========================================
-        // NÉN ẢNH
-        // ==========================================
-
-        ByteArrayOutputStream outputStream =
-                new ByteArrayOutputStream();
-
-        resizedBitmap.compress(
-                Bitmap.CompressFormat.JPEG,
-                50,
-                outputStream
-        );
-
-        byte[] imageBytes =
-                outputStream.toByteArray();
-
-        // ==========================================
-        // KIỂM TRA KÍCH THƯỚC
-        // ==========================================
-
-        /*
-         * Firestore không phù hợp để lưu ảnh lớn.
-         * Với bài thực hành này ta giữ ảnh nhỏ.
-         */
-
-        if (imageBytes.length > 600000) {
-
-            Toast.makeText(
-                    this,
-                    "Ảnh vẫn quá lớn. Hãy chọn ảnh nhỏ hơn.",
-                    Toast.LENGTH_LONG
-            ).show();
-
-            return;
-        }
-
-        // ==========================================
-        // BYTE[] -> BASE64 STRING
-        // ==========================================
-
-        String imageBase64 =
-                Base64.encodeToString(
-                        imageBytes,
-                        Base64.NO_WRAP
-                );
-
-        // ==========================================
-        // UPLOAD VÀO FIRESTORE
-        // ==========================================
-
-        db.collection("articles")
-                .document("A001")
-                .update(
-                        "image_base64",
-                        imageBase64
-                )
-                .addOnSuccessListener(
-                        unused -> {
-
-                            Toast.makeText(
-                                    MainActivity.this,
-                                    "Đã lưu ảnh A001 lên Firebase",
-                                    Toast.LENGTH_SHORT
-                            ).show();
-                        }
-                )
-                .addOnFailureListener(
-                        e -> {
-
-                            Toast.makeText(
-                                    MainActivity.this,
-                                    "Lỗi upload ảnh: "
-                                            + e.getMessage(),
-                                    Toast.LENGTH_LONG
-                            ).show();
-                        }
-                );
-    }
-
-    // ============================================================
-    // THU NHỎ BITMAP
+    // RESIZE BITMAP
     // ============================================================
 
     private Bitmap resizeBitmap(
@@ -447,24 +698,26 @@ public class MainActivity extends AppCompatActivity {
             int maxWidth
     ) {
 
-        int width =
+        int originalWidth =
                 bitmap.getWidth();
 
-        int height =
+        int originalHeight =
                 bitmap.getHeight();
 
-        // Ảnh đã đủ nhỏ
-        if (width <= maxWidth) {
+        // Không cần resize nếu ảnh đã nhỏ
+        if (originalWidth <= maxWidth) {
 
             return bitmap;
         }
 
         float ratio =
-                (float) maxWidth / width;
+                (float) maxWidth
+                        / originalWidth;
 
         int newHeight =
                 Math.round(
-                        height * ratio
+                        originalHeight
+                                * ratio
                 );
 
         return Bitmap.createScaledBitmap(
@@ -476,71 +729,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ============================================================
-    // HÀM ĐỌC FIELD AN TOÀN
-    // ============================================================
-
-    private String getStringField(
-            DocumentSnapshot document,
-            String fieldName
-    ) {
-
-        // ==========================================
-        // CÁCH 1:
-        // ĐỌC ĐÚNG TÊN FIELD
-        // ==========================================
-
-        Object directValue =
-                document.get(fieldName);
-
-        if (directValue != null) {
-
-            return directValue.toString();
-        }
-
-        // ==========================================
-        // CÁCH 2:
-        // DÒ TOÀN BỘ FIELD
-        // ==========================================
-
-        Map<String, Object> data =
-                document.getData();
-
-        if (data == null) {
-
-            return null;
-        }
-
-        for (
-                Map.Entry<String, Object> entry :
-                data.entrySet()
-        ) {
-
-            String key =
-                    entry.getKey();
-
-            if (
-                    key != null
-                            && key.trim()
-                            .equalsIgnoreCase(
-                                    fieldName
-                            )
-            ) {
-
-                Object value =
-                        entry.getValue();
-
-                if (value != null) {
-
-                    return value.toString();
-                }
-            }
-        }
-
-        return null;
-    }
-
-    // ============================================================
-    // MỞ MÀN HÌNH CHI TIẾT ARTICLE
+    // OPEN ARTICLE DETAIL
     // ============================================================
 
     private void openArticle(
@@ -553,42 +742,32 @@ public class MainActivity extends AppCompatActivity {
                         ViewArticleActivity.class
                 );
 
-        // ==========================================
-        // GỬI ID
-        // ==========================================
-
+        // ID
         intent.putExtra(
                 "id",
                 article.getId()
         );
 
-        // ==========================================
-        // GỬI TITLE
-        // ==========================================
-
+        // TITLE
         intent.putExtra(
                 "title",
                 article.getTitle()
         );
 
-        // ==========================================
-        // GỬI CONTENT
-        // ==========================================
-
+        // CONTENT
         intent.putExtra(
                 "content",
                 article.getContent()
         );
 
-        // ==========================================
-        // GỬI IMAGE BASE64
-        // ==========================================
-
+        // IMAGE
         intent.putExtra(
                 "image_base64",
                 article.getImageBase64()
         );
 
-        startActivity(intent);
+        startActivity(
+                intent
+        );
     }
 }

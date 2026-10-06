@@ -7,7 +7,6 @@ public class Article {
   private String content;
   private String imageBase64;
 
-  // Firebase cần constructor rỗng
   public Article() {
   }
 
@@ -17,6 +16,7 @@ public class Article {
           String content,
           String imageBase64
   ) {
+
     this.id = id;
     this.title = title;
     this.content = content;
@@ -35,7 +35,9 @@ public class Article {
     return title;
   }
 
-  public void setTitle(String title) {
+  public void setTitle(
+          String title
+  ) {
     this.title = title;
   }
 
@@ -43,7 +45,9 @@ public class Article {
     return content;
   }
 
-  public void setContent(String content) {
+  public void setContent(
+          String content
+  ) {
     this.content = content;
   }
 
@@ -51,7 +55,9 @@ public class Article {
     return imageBase64;
   }
 
-  public void setImageBase64(String imageBase64) {
+  public void setImageBase64(
+          String imageBase64
+  ) {
     this.imageBase64 = imageBase64;
   }
 }

@@ -15,9 +15,9 @@ import java.util.ArrayList;
 public class ArticleViewAdapter
         extends RecyclerView.Adapter<ArticleViewHolder> {
 
-  private ArrayList<Article> articleList;
+  private final ArrayList<Article> articleList;
 
-  private OnArticleClickListener listener;
+  private final OnArticleClickListener listener;
 
   public interface OnArticleClickListener {
 
@@ -69,6 +69,14 @@ public class ArticleViewAdapter
             articleList.get(position);
 
     // ==========================================
+    // ID
+    // ==========================================
+
+    holder.txtArticleId.setText(
+            "ID: " + article.getId()
+    );
+
+    // ==========================================
     // TITLE
     // ==========================================
 
@@ -77,11 +85,15 @@ public class ArticleViewAdapter
     );
 
     // ==========================================
-    // IMAGE BASE64
+    // IMAGE
     // ==========================================
 
     holder.progressArticle.setVisibility(
             View.GONE
+    );
+
+    holder.imgArticle.setImageDrawable(
+            null
     );
 
     String imageBase64 =
@@ -94,7 +106,7 @@ public class ArticleViewAdapter
 
       try {
 
-        byte[] imageBytes =
+        byte[] bytes =
                 Base64.decode(
                         imageBase64,
                         Base64.DEFAULT
@@ -102,9 +114,9 @@ public class ArticleViewAdapter
 
         Bitmap bitmap =
                 BitmapFactory.decodeByteArray(
-                        imageBytes,
+                        bytes,
                         0,
-                        imageBytes.length
+                        bytes.length
                 );
 
         holder.imgArticle.setImageBitmap(
@@ -117,17 +129,10 @@ public class ArticleViewAdapter
                 null
         );
       }
-
-    } else {
-
-      // Hiện tại A001 chưa có ảnh
-      holder.imgArticle.setImageDrawable(
-              null
-      );
     }
 
     // ==========================================
-    // CLICK ARTICLE
+    // CLICK
     // ==========================================
 
     holder.itemView.setOnClickListener(

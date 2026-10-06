@@ -11,28 +11,37 @@ import androidx.recyclerview.widget.RecyclerView;
 public class ArticleViewHolder
         extends RecyclerView.ViewHolder {
 
-  ImageView imgArticle;
-  TextView txtTitle;
-  ProgressBar progressArticle;
+    ImageView imgArticle;
 
-  public ArticleViewHolder(
-          @NonNull View itemView
-  ) {
-    super(itemView);
+    TextView txtArticleId;
+    TextView txtTitle;
 
-    imgArticle =
-            itemView.findViewById(
-                    R.id.imgArticle
-            );
+    ProgressBar progressArticle;
 
-    txtTitle =
-            itemView.findViewById(
-                    R.id.txtTitle
-            );
+    public ArticleViewHolder(
+            @NonNull View itemView
+    ) {
 
-    progressArticle =
-            itemView.findViewById(
-                    R.id.progressArticle
-            );
-  }
+        super(itemView);
+
+        imgArticle =
+                itemView.findViewById(
+                        R.id.imgArticle
+                );
+
+        txtArticleId =
+                itemView.findViewById(
+                        R.id.txtArticleId
+                );
+
+        txtTitle =
+                itemView.findViewById(
+                        R.id.txtTitle
+                );
+
+        progressArticle =
+                itemView.findViewById(
+                        R.id.progressArticle
+                );
+    }
 }
